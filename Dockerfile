@@ -9,3 +9,4 @@ FROM alpine:3.20
 COPY --from=builder /log-pipeline /usr/local/bin/log-pipeline
 EXPOSE 8090
 ENTRYPOINT ["log-pipeline"]
+

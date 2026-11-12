@@ -35,7 +35,7 @@ func main() {
 	pipe := pipeline.New(pipeline.DefaultConfig(), detector, store)
 	srv := &http.Server{
 		Addr:         addr,
-		Handler:      httpapi.NewServer(pipe, store),
+		Handler:      httpapi.NewServerWithAuth(pipe, store, os.Getenv("INGEST_API_KEY")),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
@@ -58,3 +58,4 @@ func main() {
 	_ = pipe.Shutdown(ctx)
 	logger.Info("log_pipeline_stopped")
 }
+

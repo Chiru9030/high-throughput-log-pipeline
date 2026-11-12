@@ -170,3 +170,4 @@ func (s *IndexedStore) Close() error {
 	}
 	return nil
 }
+

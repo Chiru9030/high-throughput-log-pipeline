@@ -23,3 +23,4 @@ go test -v -race -bench=. ./...
 # Run service locally
 go run ./cmd/pipeline
 ```
+

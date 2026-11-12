@@ -11,17 +11,28 @@ import (
 	"github.com/Chiru9030/high-throughput-log-pipeline/internal/storage"
 )
 
+const (
+	maxSinglePayloadBytes = 256 * 1024
+	maxBatchPayloadBytes  = 4 * 1024 * 1024
+)
+
 type Server struct {
-	pipe  *pipeline.Pipeline
-	store storage.Store
-	mux   *http.ServeMux
+	pipe   *pipeline.Pipeline
+	store  storage.Store
+	apiKey string
+	mux    *http.ServeMux
 }
 
 func NewServer(pipe *pipeline.Pipeline, store storage.Store) *Server {
+	return NewServerWithAuth(pipe, store, "")
+}
+
+func NewServerWithAuth(pipe *pipeline.Pipeline, store storage.Store, apiKey string) *Server {
 	s := &Server{
-		pipe:  pipe,
-		store: store,
-		mux:   http.NewServeMux(),
+		pipe:   pipe,
+		store:  store,
+		apiKey: apiKey,
+		mux:    http.NewServeMux(),
 	}
 	s.mux.HandleFunc("GET /health", s.handleHealth)
 	s.mux.HandleFunc("GET /metrics", s.handleMetrics)
@@ -33,6 +44,14 @@ func NewServer(pipe *pipeline.Pipeline, store storage.Store) *Server {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if s.apiKey != "" && r.URL.Path != "/health" {
+		auth := r.Header.Get("Authorization")
+		key := r.Header.Get("X-API-Key")
+		if key != s.apiKey && auth != "Bearer "+s.apiKey {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+	}
 	s.mux.ServeHTTP(w, r)
 }
 
@@ -50,8 +69,14 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleIngestSingle(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxSinglePayloadBytes)
 	var ev model.LogEvent
 	if err := json.NewDecoder(r.Body).Decode(&ev); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "payload exceeds 256 KiB limit"})
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON payload"})
 		return
 	}
@@ -77,8 +102,14 @@ func (s *Server) handleIngestSingle(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleIngestBatch(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBatchPayloadBytes)
 	var events []model.LogEvent
 	if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "batch payload exceeds 4 MiB limit"})
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON array"})
 		return
 	}
@@ -135,3 +166,4 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(data)
 }
+

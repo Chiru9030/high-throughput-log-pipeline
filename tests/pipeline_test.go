@@ -126,6 +126,16 @@ func TestHTTPIngestAndBackpressure(t *testing.T) {
 	if resp.Count != 1 {
 		t.Fatalf("expected 1 anomaly from /v1/anomalies, got %d", resp.Count)
 	}
+
+	// Oversized single event (>256 KiB) -> 413 Request Entity Too Large
+	bigMsg := strings.Repeat("x", 300*1024)
+	bigBody, _ := json.Marshal(model.LogEvent{Service: "payments", Message: bigMsg})
+	bigReq := httptest.NewRequest(http.MethodPost, "/v1/ingest", bytes.NewReader(bigBody))
+	bigRec := httptest.NewRecorder()
+	srv.ServeHTTP(bigRec, bigReq)
+	if bigRec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413 RequestEntityTooLarge, got %d", bigRec.Code)
+	}
 }
 
 func BenchmarkPipelineIngest(b *testing.B) {
@@ -154,3 +164,4 @@ func BenchmarkPipelineIngest(b *testing.B) {
 	b.StopTimer()
 	_ = pipe.Shutdown(context.Background())
 }
+
