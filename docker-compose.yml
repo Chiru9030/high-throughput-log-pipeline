@@ -1,0 +1,13 @@
+services:
+  log-pipeline:
+    build: .
+    environment:
+      LISTEN_ADDR: ":8090"
+      NDJSON_PATH: "/data/logs.ndjson"
+    ports:
+      - "8090:8090"
+    volumes:
+      - pipeline_data:/data
+
+volumes:
+  pipeline_data:
