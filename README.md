@@ -1,10 +1,18 @@
-# High-Throughput Log Aggregation & Event Ingestion Pipeline
+# High-Throughput Log Aggregation & Event Ingestion Pipeline (v2.0)
 
 [![CI](https://github.com/Chiru9030/high-throughput-log-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/Chiru9030/high-throughput-log-pipeline/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/badge/version-2.0.0-green.svg)](cmd/pipeline/main.go)
 [![Go Version](https://img.shields.io/badge/go-1.24-blue.svg)](https://golang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A high-throughput, low-allocation real-time **Log Ingestion & Anomaly Detection Pipeline** engineered in **Go 1.24**. Designed to ingest, sanitize, analyze, and index telemetry payloads under heavy burst loads with zero garbage-collection thrashing, streaming statistical anomaly detection, and automated PII / secret redaction.
+A high-throughput, low-allocation real-time **Log Ingestion & Anomaly Detection Pipeline** engineered in **Go 1.24**. Designed to ingest, sanitize, analyze, and index telemetry payloads under heavy burst loads with zero garbage-collection thrashing, crash-resilient Write-Ahead Logging (WAL), streaming statistical anomaly detection, multi-format parsing (JSON, Syslog RFC 5424, Logfmt), and real-time latency percentile tracking (P50, P90, P99).
+
+---
+
+## What's New in v2.0
+- **Write-Ahead Log (WAL) for Crash Resilience**: Length-prefixed, sequence-numbered binary WAL with CRC32 checksum verification, enabling crash recovery before channel enqueue.
+- **Multi-Format Ingestion Parsers**: Native support for **Syslog RFC 5424** and **Logfmt** in addition to structured JSON via `Content-Type: text/plain` or auto-detection.
+- **Real-Time Latency Percentiles (P50, P90, P99)**: Sliding 1-minute time window aggregator providing instantaneous percentile calculations via `GET /v1/metrics/latency?service=...`.
 
 ---
 
@@ -12,10 +20,13 @@ A high-throughput, low-allocation real-time **Log Ingestion & Anomaly Detection 
 - [Pipeline Architecture](#pipeline-architecture)
 - [Key Engineering Challenges & Solutions](#key-engineering-challenges--solutions)
   - [1. Non-Blocking Async Ingestion & Backpressure](#1-non-blocking-async-ingestion--backpressure)
-  - [2. Zero-Allocation Batching with `sync.Pool`](#2-zero-allocation-batching-with-syncpool)
-  - [3. Streaming Anomaly Detection via Welford's Algorithm](#3-streaming-anomaly-detection-via-welfords-algorithm)
-  - [4. Automated PII & Secret Redaction](#4-automated-pii--secret-redaction)
-  - [5. Sub-Millisecond Indexed Ring-Buffer Storage](#5-sub-millisecond-indexed-ring-buffer-storage)
+  - [2. Crash-Resilient Write-Ahead Log (WAL)](#2-crash-resilient-write-ahead-log-wal)
+  - [3. Multi-Format Ingestion: Syslog & Logfmt](#3-multi-format-ingestion-syslog--logfmt)
+  - [4. Zero-Allocation Batching with `sync.Pool`](#4-zero-allocation-batching-with-syncpool)
+  - [5. Streaming Anomaly Detection via Welford's Algorithm](#5-streaming-anomaly-detection-via-welfords-algorithm)
+  - [6. Real-Time Latency Percentiles (P50, P90, P99)](#6-real-time-latency-percentiles-p50-p90-p99)
+  - [7. Automated PII & Secret Redaction](#7-automated-pii--secret-redaction)
+  - [8. Sub-Millisecond Indexed Ring-Buffer Storage](#8-sub-millisecond-indexed-ring-buffer-storage)
 - [Benchmark Results & Performance Profile](#benchmark-results--performance-profile)
 - [API Reference](#api-reference)
 - [Getting Started & Local Setup](#getting-started--local-setup)
@@ -140,11 +151,12 @@ curl -X POST http://localhost:8090/v1/ingest \
   }'
 ```
 
-### Query Endpoints
+### Query & Telemetry Endpoints
 | Method | Endpoint | Query Parameters | Description |
 |---|---|---|---|
 | `GET` | `/v1/logs` | `service`, `level`, `anomaly=true`, `limit` | Query indexed logs |
 | `GET` | `/v1/anomalies` | `service`, `limit` | Fast retrieval from anomaly index |
+| `GET` | `/v1/metrics/latency` | `service` | **v2**: Real-time sliding window P50, P90, P99, Max, and Avg latency |
 | `GET` | `/metrics` | None | Real-time queue depth & worker stats |
 
 #### Example Metrics Response:

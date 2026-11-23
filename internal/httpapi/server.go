@@ -3,10 +3,13 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/Chiru9030/high-throughput-log-pipeline/internal/model"
+	"github.com/Chiru9030/high-throughput-log-pipeline/internal/parser"
 	"github.com/Chiru9030/high-throughput-log-pipeline/internal/pipeline"
 	"github.com/Chiru9030/high-throughput-log-pipeline/internal/storage"
 )
@@ -36,6 +39,7 @@ func NewServerWithAuth(pipe *pipeline.Pipeline, store storage.Store, apiKey stri
 	}
 	s.mux.HandleFunc("GET /health", s.handleHealth)
 	s.mux.HandleFunc("GET /metrics", s.handleMetrics)
+	s.mux.HandleFunc("GET /v1/metrics/latency", s.handleMetricsLatency)
 	s.mux.HandleFunc("POST /v1/ingest", s.handleIngestSingle)
 	s.mux.HandleFunc("POST /v1/ingest/batch", s.handleIngestBatch)
 	s.mux.HandleFunc("GET /v1/logs", s.handleQueryLogs)
@@ -71,15 +75,37 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleIngestSingle(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSinglePayloadBytes)
 	var ev model.LogEvent
-	if err := json.NewDecoder(r.Body).Decode(&ev); err != nil {
-		var maxErr *http.MaxBytesError
-		if errors.As(err, &maxErr) {
-			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "payload exceeds 256 KiB limit"})
+
+	contentType := strings.ToLower(r.Header.Get("Content-Type"))
+	if strings.Contains(contentType, "text/plain") {
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unable to read body"})
 			return
 		}
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON payload"})
-		return
+		raw := string(bodyBytes)
+		var ok bool
+		if strings.HasPrefix(strings.TrimSpace(raw), "<") {
+			ev, ok = parser.ParseSyslogRFC5424(raw)
+		} else {
+			ev, ok = parser.ParseLogfmt(raw)
+		}
+		if !ok {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid syslog or logfmt format"})
+			return
+		}
+	} else {
+		if err := json.NewDecoder(r.Body).Decode(&ev); err != nil {
+			var maxErr *http.MaxBytesError
+			if errors.As(err, &maxErr) {
+				writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "payload exceeds 256 KiB limit"})
+				return
+			}
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON payload"})
+			return
+		}
 	}
+
 	if ev.Service == "" || ev.Message == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "service and message are required"})
 		return
@@ -136,6 +162,15 @@ func (s *Server) handleIngestBatch(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusTooManyRequests
 	}
 	writeJSON(w, status, map[string]int{"accepted": accepted, "dropped": dropped})
+}
+
+func (s *Server) handleMetricsLatency(w http.ResponseWriter, r *http.Request) {
+	service := r.URL.Query().Get("service")
+	summary := s.pipe.LatencyMetrics().Summary(service)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"service": service,
+		"latency": summary,
+	})
 }
 
 func (s *Server) handleQueryLogs(w http.ResponseWriter, r *http.Request) {

@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"github.com/Chiru9030/high-throughput-log-pipeline/internal/anomaly"
+	"github.com/Chiru9030/high-throughput-log-pipeline/internal/metrics"
 	"github.com/Chiru9030/high-throughput-log-pipeline/internal/model"
 	"github.com/Chiru9030/high-throughput-log-pipeline/internal/storage"
+	"github.com/Chiru9030/high-throughput-log-pipeline/internal/wal"
 )
 
 var ErrQueueFull = errors.New("ingestion queue saturated: apply backpressure")
@@ -45,6 +47,8 @@ type Pipeline struct {
 	detector  *anomaly.Detector
 	store     storage.Store
 	batchPool sync.Pool
+	wal       *wal.WAL
+	metrics   *metrics.PercentileAggregator
 
 	wg     sync.WaitGroup
 	closed atomic.Bool
@@ -57,6 +61,10 @@ type Pipeline struct {
 }
 
 func New(cfg Config, detector *anomaly.Detector, store storage.Store) *Pipeline {
+	return NewWithWAL(cfg, detector, store, nil)
+}
+
+func NewWithWAL(cfg Config, detector *anomaly.Detector, store storage.Store, walLog *wal.WAL) *Pipeline {
 	if cfg.QueueCapacity <= 0 {
 		cfg.QueueCapacity = 16384
 	}
@@ -75,6 +83,8 @@ func New(cfg Config, detector *anomaly.Detector, store storage.Store) *Pipeline 
 		queue:    make(chan model.LogEvent, cfg.QueueCapacity),
 		detector: detector,
 		store:    store,
+		wal:      walLog,
+		metrics:  metrics.NewPercentileAggregator(time.Minute),
 		batchPool: sync.Pool{
 			New: func() any {
 				s := make([]model.LogEvent, 0, cfg.BatchSize)
@@ -91,6 +101,10 @@ func New(cfg Config, detector *anomaly.Detector, store storage.Store) *Pipeline 
 	return p
 }
 
+func (p *Pipeline) LatencyMetrics() *metrics.PercentileAggregator {
+	return p.metrics
+}
+
 // Enqueue submits an event non-blockingly. Returns ErrQueueFull when saturated.
 func (p *Pipeline) Enqueue(ev model.LogEvent) error {
 	if p.closed.Load() {
@@ -98,6 +112,12 @@ func (p *Pipeline) Enqueue(ev model.LogEvent) error {
 	}
 	if ev.Timestamp.IsZero() {
 		ev.Timestamp = time.Now().UTC()
+	}
+
+	if p.wal != nil {
+		if _, err := p.wal.Append(ev); err != nil {
+			return err
+		}
 	}
 
 	select {
@@ -125,6 +145,9 @@ func (p *Pipeline) workerLoop() {
 		var batchAnomalies uint64
 		for i := range batch {
 			p.detector.Inspect(&batch[i])
+			if batch[i].LatencyMs > 0 {
+				p.metrics.Record(batch[i].Service, batch[i].LatencyMs)
+			}
 			if batch[i].IsAnomaly {
 				batchAnomalies++
 			}
