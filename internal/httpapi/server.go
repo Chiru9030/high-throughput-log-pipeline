@@ -62,8 +62,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	stored, anomalies := s.store.Stats()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"pipeline":        s.pipe.Stats(),
-		"stored_events":   stored,
+		"pipeline":         s.pipe.Stats(),
+		"stored_events":    stored,
 		"stored_anomalies": anomalies,
 	})
 }
@@ -166,4 +166,3 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(data)
 }
-
