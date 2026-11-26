@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: log-pipeline
+  labels:
+    app: high-throughput-log-pipeline
+spec:
+  serviceName: log-pipeline-svc
+  replicas: 1
+  selector:
+    matchLabels:
+      app: high-throughput-log-pipeline
+  template:
+    metadata:
+      labels:
+        app: high-throughput-log-pipeline
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+      containers:
+        - name: log-pipeline
+          image: ghcr.io/chiru9030/high-throughput-log-pipeline:v1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8090
+              name: http
+          envFrom:
+            - configMapRef:
+                name: log-pipeline-config
+          env:
+            - name: INGEST_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: log-pipeline-secrets
+                  key: INGEST_API_KEY
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8090
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8090
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

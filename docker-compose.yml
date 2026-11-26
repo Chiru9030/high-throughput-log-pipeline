@@ -1,14 +1,22 @@
 services:
   log-pipeline:
     build: .
+    image: ghcr.io/chiru9030/high-throughput-log-pipeline:v1.0.0
+    restart: unless-stopped
     environment:
       LISTEN_ADDR: ":8090"
       NDJSON_PATH: "/data/logs.ndjson"
+      WAL_PATH: "/data/logs.wal"
+      INGEST_API_KEY: "${INGEST_API_KEY:-}"
     ports:
       - "8090:8090"
     volumes:
       - pipeline_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8090/healthz"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
 
 volumes:
   pipeline_data:
-

@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: high-throughput-log-pipeline
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: INGEST_API_KEY
+        generateValue: true

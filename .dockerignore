@@ -1,0 +1,9 @@
+.git
+.env
+.env.*
+!.env.example
+bin/
+*.ndjson
+*.wal
+.DS_Store
+tests/

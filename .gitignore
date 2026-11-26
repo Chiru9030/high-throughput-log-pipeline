@@ -1,4 +1,11 @@
 bin/
 *.ndjson
+*.wal
+*.wal.*
+*.ckpt
+*.ckpt.tmp
+*.compact
 .env
-
+.env.*
+!.env.example
+.DS_Store

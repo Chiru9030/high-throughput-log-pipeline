@@ -3,16 +3,23 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
 
 jobs:
-  test:
+  test-and-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
-      - run: go test -v -race -bench=. -benchmem ./...
-
+      - name: Go Vet
+        run: go vet ./...
+      - name: Go Build
+        run: go build -v ./...
+      - name: Go Race Tests & Benchmarks
+        run: go test -v -race -count=1 -bench=. -benchmem ./...
+      - name: Docker Build Check
+        run: docker build -t ghcr.io/chiru9030/high-throughput-log-pipeline:ci .

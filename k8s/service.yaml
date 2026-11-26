@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: log-pipeline-svc
+  labels:
+    app: high-throughput-log-pipeline
+spec:
+  type: ClusterIP
+  selector:
+    app: high-throughput-log-pipeline
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8090
